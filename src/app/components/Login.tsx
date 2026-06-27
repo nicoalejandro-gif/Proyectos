@@ -1,6 +1,8 @@
 ﻿import { useState } from "react";
-import { AlertCircle, Building2, Lock, LogIn, Shield, User } from "lucide-react";
-import { Role } from "../data/mockData";
+import { AlertCircle, Lock, LogIn, Shield, User } from "lucide-react";
+import { Role } from "../data/appData";
+import bannerUrl from "../../../imagenes/Banner.png";
+import logoUrl from "../../../imagenes/Logo.PNG";
 
 interface LoginProps {
   onLogin: (user: { username: string; role: Role; nombre: string }) => void;
@@ -38,17 +40,21 @@ export function Login({ onLogin }: LoginProps) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 via-white to-slate-100 p-4">
-      <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
-          <div className="mb-4 inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-blue-700 shadow-lg">
-            <Building2 className="h-10 w-10 text-white" />
-          </div>
-          <h1 className="mb-2 text-2xl text-foreground md:text-3xl">Sistema de Gestión de Boletos</h1>
-          <p className="text-sm text-muted-foreground">Acceso interno municipal</p>
+    <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
+      <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+        <div className="h-24 bg-[#07366d]">
+          <img src={bannerUrl} alt="Gobierno de la Ciudad de Obera" className="h-full w-full object-cover object-center" />
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-8 shadow-xl">
+        <div className="px-8 pb-8 pt-6">
+          <div className="mb-8 text-center">
+            <div className="mb-4 inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-white p-2 shadow-lg ring-1 ring-border">
+              <img src={logoUrl} alt="Gobierno de Obera" className="h-full w-full object-contain" />
+            </div>
+            <h1 className="mb-2 text-2xl text-foreground md:text-3xl">Sistema de Gestión de Boletos</h1>
+            <p className="text-sm text-muted-foreground">Acceso interno municipal</p>
+          </div>
+
           <div className="mb-6">
             <h2 className="mb-1 text-xl text-foreground">Iniciar sesión</h2>
             <p className="text-sm text-muted-foreground">Administradores y supervisores autorizados</p>
@@ -120,7 +126,7 @@ export function Login({ onLogin }: LoginProps) {
           </form>
         </div>
 
-        <div className="mt-6 rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <div className="mx-8 mb-8 rounded-xl border border-blue-200 bg-blue-50 p-4">
           <div className="mb-3 flex items-start gap-2">
             <Shield className="mt-0.5 h-4 w-4 shrink-0 text-blue-700" />
             <div>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Edit2, Eye, Lock, Search, Trash2, UserPlus, X } from "lucide-react";
-import { Beneficiario, beneficiariosMock, calcularEdad } from "../data/mockData";
+import { Beneficiario, beneficiariosMock, calcularEdad } from "../data/appData";
 
 type FormState = {
   nombre: string;
@@ -30,7 +30,7 @@ const estadoClass: Record<Beneficiario["estado"], string> = {
 
 const formatDni = (dni: string) => dni.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 
-export function Beneficiarios() {
+export function Beneficiarios({ readOnly = false }: { readOnly?: boolean }) {
   const [beneficiarios, setBeneficiarios] = useState<Beneficiario[]>(beneficiariosMock);
   const [busqueda, setBusqueda] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -167,18 +167,20 @@ export function Beneficiarios() {
             className="w-full rounded-xl border border-border bg-background py-2 pl-9 pr-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        <button
-          onClick={() => {
-            setForm(emptyForm);
-            setEditId(null);
-            setErrors({});
-            setShowForm(true);
-          }}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-2 text-sm text-background transition hover:opacity-90"
-        >
-          <UserPlus className="h-4 w-4" />
-          + Nuevo Beneficiario
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => {
+              setForm(emptyForm);
+              setEditId(null);
+              setErrors({});
+              setShowForm(true);
+            }}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-2 text-sm text-background transition hover:opacity-90"
+          >
+            <UserPlus className="h-4 w-4" />
+            Nuevo beneficiario
+          </button>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -186,7 +188,7 @@ export function Beneficiarios() {
           <table className="w-full min-w-[760px]">
             <thead className="border-b border-border bg-muted/30">
               <tr>
-                {["DNI", "Nombre", "Edad", "Estado", "Boletos disponibles", "Acciones"].map((header) => (
+                {["DNI", "Nombre", "Edad", "Estado", "Boletos disponibles", readOnly ? "Consulta" : "Acciones"].map((header) => (
                   <th key={header} className="px-4 py-3 text-left text-xs uppercase tracking-wide text-muted-foreground">
                     {header}
                   </th>
@@ -210,15 +212,19 @@ export function Beneficiarios() {
                       <button onClick={() => setViewId(beneficiario.id)} className="rounded-lg p-2 text-muted-foreground hover:bg-accent" title="Ver">
                         <Eye className="h-4 w-4" />
                       </button>
-                      <button onClick={() => handleEdit(beneficiario)} className="rounded-lg p-2 text-muted-foreground hover:bg-accent" title="Editar">
-                        <Edit2 className="h-4 w-4" />
-                      </button>
-                      <button onClick={() => bloquear(beneficiario.id)} className="rounded-lg p-2 text-muted-foreground hover:bg-yellow-50 hover:text-yellow-700" title="Bloquear">
-                        <Lock className="h-4 w-4" />
-                      </button>
-                      <button onClick={() => eliminar(beneficiario.id)} className="rounded-lg p-2 text-muted-foreground hover:bg-red-50 hover:text-destructive" title="Eliminar">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {!readOnly && (
+                        <>
+                          <button onClick={() => handleEdit(beneficiario)} className="rounded-lg p-2 text-muted-foreground hover:bg-accent" title="Editar">
+                            <Edit2 className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => bloquear(beneficiario.id)} className="rounded-lg p-2 text-muted-foreground hover:bg-yellow-50 hover:text-yellow-700" title="Bloquear o desbloquear tarjeta">
+                            <Lock className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => eliminar(beneficiario.id)} className="rounded-lg p-2 text-muted-foreground hover:bg-red-50 hover:text-destructive" title="Dar de baja">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { Search, Ticket } from "lucide-react";
-import { beneficiariosMock, recargasMock, Recarga } from "../data/mockData";
+import { beneficiariosMock, recargasMock, type Recarga } from "../data/appData";
+
+const MAX_BOLETOS_POR_RECARGA = 15;
 
 export function Recargas() {
   const [dni, setDni] = useState("");
-  const [cantidad, setCantidad] = useState("15");
+  const [cantidad, setCantidad] = useState(String(MAX_BOLETOS_POR_RECARGA));
   const [recargas, setRecargas] = useState<Recarga[]>(recargasMock);
   const [mensaje, setMensaje] = useState("");
 
@@ -28,6 +30,11 @@ export function Recargas() {
       return;
     }
 
+    if (cantidadNumerica > MAX_BOLETOS_POR_RECARGA) {
+      setMensaje(`La recarga no puede superar los ${MAX_BOLETOS_POR_RECARGA} boletos por operación.`);
+      return;
+    }
+
     const nuevaRecarga: Recarga = {
       id: `R${String(Date.now()).slice(-4)}`,
       beneficiarioId: beneficiario.id,
@@ -40,7 +47,7 @@ export function Recargas() {
 
     setRecargas((prev) => [nuevaRecarga, ...prev]);
     setMensaje("Recarga registrada correctamente.");
-    setCantidad("15");
+    setCantidad(String(MAX_BOLETOS_POR_RECARGA));
   };
 
   return (
@@ -75,10 +82,29 @@ export function Recargas() {
             <input
               type="number"
               min="1"
+              max={MAX_BOLETOS_POR_RECARGA}
               value={cantidad}
-              onChange={(event) => setCantidad(event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value;
+
+                if (!value) {
+                  setCantidad(value);
+                  setMensaje("");
+                  return;
+                }
+
+                const cantidadNumerica = Number(value);
+
+                setCantidad(value);
+                setMensaje(
+                  cantidadNumerica > MAX_BOLETOS_POR_RECARGA
+                    ? `La recarga no puede superar los ${MAX_BOLETOS_POR_RECARGA} boletos por operación.`
+                    : ""
+                );
+              }}
               className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
             />
+            <p className="text-xs text-muted-foreground">Máximo {MAX_BOLETOS_POR_RECARGA} boletos por operación.</p>
           </div>
 
           <button className="self-end rounded-xl bg-foreground px-5 py-2.5 text-sm text-background hover:opacity-90">
