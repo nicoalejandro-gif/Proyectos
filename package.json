@@ -1,8 +1,9 @@
 {
-  "name": "@figma/my-make-file",
+  "name": "web-boletos-jubilados",
   "private": true,
   "version": "0.0.1",
   "type": "module",
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "build": "vite build",
     "dev": "vite"
@@ -80,11 +81,6 @@
     },
     "react-dom": {
       "optional": true
-    }
-  },
-  "pnpm": {
-    "overrides": {
-      "vite": "6.3.5"
     }
   }
 }
