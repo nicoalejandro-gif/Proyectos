@@ -1,42 +1,32 @@
 ﻿import { useState } from "react";
 import { AlertCircle, Lock, LogIn, Shield, User } from "lucide-react";
-import { Role } from "../data/appData";
-import bannerUrl from "../../../imagenes/Banner.png";
+import { signInWithEmail, type AppUser } from "../lib/auth";
+import bannerUrl from "../../../imagenes/Bannerlogin.png";
 import logoUrl from "../../../imagenes/Logo.PNG";
 
 interface LoginProps {
-  onLogin: (user: { username: string; role: Role; nombre: string }) => void;
+  onLogin: (user: AppUser) => void;
 }
 
-const USUARIOS = [
-  { username: "admin", password: "admin123", role: "admin" as const, nombre: "Administrador Municipal" },
-  { username: "supervisor", password: "super123", role: "supervisor" as const, nombre: "Supervisor de Transporte" },
-  { username: "maria.gonzalez", password: "maria123", role: "admin" as const, nombre: "María González" },
-  { username: "juan.perez", password: "juan123", role: "supervisor" as const, nombre: "Juan Pérez" },
-];
-
 export function Login({ onLogin }: LoginProps) {
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
     setLoading(true);
 
-    setTimeout(() => {
-      const usuario = USUARIOS.find((item) => item.username === username && item.password === password);
-
-      if (usuario) {
-        onLogin({ username: usuario.username, role: usuario.role, nombre: usuario.nombre });
-        return;
-      }
-
-      setError("Usuario o contraseña incorrectos");
+    try {
+      const user = await signInWithEmail(email.trim(), password);
+      onLogin(user);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "No se pudo iniciar sesion.");
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
   return (
@@ -64,19 +54,19 @@ export function Login({ onLogin }: LoginProps) {
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-sm text-foreground">
                 <User className="h-4 w-4 text-muted-foreground" />
-                Usuario
+                Email
               </label>
               <input
-                type="text"
-                value={username}
+                type="email"
+                value={email}
                 onChange={(event) => {
-                  setUsername(event.target.value);
+                  setEmail(event.target.value);
                   setError("");
                 }}
-                placeholder="Ingrese su usuario"
+                placeholder="Ingrese su email institucional"
                 className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors focus:border-blue-500"
                 required
-                autoComplete="username"
+                autoComplete="email"
               />
             </div>
 
@@ -108,7 +98,7 @@ export function Login({ onLogin }: LoginProps) {
 
             <button
               type="submit"
-              disabled={loading || !username || !password}
+              disabled={loading || !email || !password}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 py-3 text-white shadow-md transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? (
@@ -130,13 +120,9 @@ export function Login({ onLogin }: LoginProps) {
           <div className="mb-3 flex items-start gap-2">
             <Shield className="mt-0.5 h-4 w-4 shrink-0 text-blue-700" />
             <div>
-              <h3 className="mb-1 text-sm font-medium text-blue-900">Credenciales de prueba</h3>
-              <p className="text-xs text-blue-700">Para demo y desarrollo:</p>
+              <h3 className="mb-1 text-sm font-medium text-blue-900">Acceso interno</h3>
+              <p className="text-xs text-blue-700">Las cuentas son creadas y activadas por administracion.</p>
             </div>
-          </div>
-          <div className="space-y-2 text-xs">
-            <div className="rounded-lg border border-blue-100 bg-white p-2 text-blue-900"><strong>Administrador:</strong> admin / admin123</div>
-            <div className="rounded-lg border border-blue-100 bg-white p-2 text-blue-900"><strong>Supervisor:</strong> supervisor / super123</div>
           </div>
         </div>
       </div>

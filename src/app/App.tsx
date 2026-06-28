@@ -11,16 +11,12 @@ import { Recargas } from "./components/Recargas";
 import { Reportes } from "./components/Reportes";
 import { Tarjetas } from "./components/Tarjetas";
 import { actividadesMock, anomaliasMock, beneficiariosMock, incidentesMock, recargasMock, tarjetasMock, viajesMock, type Role } from "./data/appData";
+import { fetchProfile, type AppUser } from "./lib/auth";
+import { supabase } from "./lib/supabase";
 import bannerUrl from "../../imagenes/Banner.png";
 import logoUrl from "../../imagenes/Logo.PNG";
 
 type Tab = "dashboard" | "beneficiarios" | "recargas" | "tarjetas" | "anomalias" | "incidentes" | "reportes" | "auditoria" | "configuracion";
-
-interface User {
-  username: string;
-  role: Role;
-  nombre: string;
-}
 
 interface NavItem {
   id: Tab;
@@ -56,22 +52,6 @@ function canAccessTab(role: Role, tab: Tab) {
 
 function isTab(value: string): value is Tab {
   return navItems.some((item) => item.id === value);
-}
-
-function isRole(value: unknown): value is Role {
-  return value === "admin" || value === "supervisor";
-}
-
-function parseStoredUser(value: string): User | null {
-  try {
-    const parsed = JSON.parse(value) as Partial<User>;
-    if (typeof parsed.username === "string" && typeof parsed.nombre === "string" && isRole(parsed.role)) {
-      return { username: parsed.username, nombre: parsed.nombre, role: parsed.role };
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }
 
 function MetricCard({ label, value, detail, color }: { label: string; value: number | string; detail: string; color: string }) {
@@ -121,20 +101,53 @@ function Dashboard({ userRole }: { userRole: Role }) {
 }
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem("user");
-    if (!savedUser) return;
-    const parsedUser = parseStoredUser(savedUser);
-    if (parsedUser) {
-      const hashTab = window.location.hash.replace("#", "");
-      setActiveTab(isTab(hashTab) && canAccessTab(parsedUser.role, hashTab) ? hashTab : getDefaultTab(parsedUser.role));
-      setUser(parsedUser);
-    } else {
-      localStorage.removeItem("user");
-    }
+    let cancelled = false;
+
+    const loadSession = async () => {
+      const { data } = await supabase.auth.getSession();
+
+      if (!data.session) {
+        if (!cancelled) {
+          setUser(null);
+          setAuthLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const profile = await fetchProfile(data.session);
+        if (!cancelled) {
+          const hashTab = window.location.hash.replace("#", "");
+          setActiveTab(isTab(hashTab) && canAccessTab(profile.role, hashTab) ? hashTab : getDefaultTab(profile.role));
+          setUser(profile);
+        }
+      } catch {
+        await supabase.auth.signOut();
+        if (!cancelled) setUser(null);
+      } finally {
+        if (!cancelled) setAuthLoading(false);
+      }
+    };
+
+    loadSession();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        setUser(null);
+        setActiveTab("dashboard");
+        setAuthLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   const availableNavItems = user ? getNavItems(user.role) : [];
@@ -153,19 +166,26 @@ export default function App() {
     window.history.replaceState(null, "", `#${tab}`);
   };
 
-  const handleLogin = (userData: User) => {
-    localStorage.setItem("user", JSON.stringify(userData));
+  const handleLogin = (userData: AppUser) => {
     setActiveTab(getDefaultTab(userData.role));
     setUser(userData);
     window.history.replaceState(null, "", `#${getDefaultTab(userData.role)}`);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
     setActiveTab("dashboard");
-    localStorage.removeItem("user");
     window.history.replaceState(null, "", window.location.pathname);
   };
+
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+        Verificando sesion...
+      </div>
+    );
+  }
 
   if (!user) return <Login onLogin={handleLogin} />;
 
