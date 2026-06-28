@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Edit2, Eye, Lock, Search, Trash2, UserPlus, X } from "lucide-react";
-import { Beneficiario, beneficiariosMock, calcularEdad } from "../data/appData";
+import { Beneficiario, calcularEdad } from "../data/appData";
+import { supabase } from "../lib/supabase";
 
 type FormState = {
   nombre: string;
@@ -10,6 +11,20 @@ type FormState = {
   direccion: string;
   barrio: string;
   localidad: string;
+};
+
+type BeneficiaryRow = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  dni: string;
+  birth_date: string;
+  street_address: string;
+  neighborhood: string;
+  city: string;
+  status_code: Beneficiario["estado"];
+  available_tickets: number;
+  enrolled_at: string;
 };
 
 const emptyForm: FormState = {
@@ -30,25 +45,69 @@ const estadoClass: Record<Beneficiario["estado"], string> = {
 
 const formatDni = (dni: string) => dni.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 
+const mapBeneficiary = (row: BeneficiaryRow): Beneficiario => ({
+  id: row.id,
+  nombre: row.first_name,
+  apellido: row.last_name,
+  dni: row.dni,
+  fechaNacimiento: row.birth_date,
+  direccion: row.street_address,
+  barrio: row.neighborhood,
+  localidad: row.city,
+  estado: row.status_code,
+  boletosDisponibles: row.available_tickets,
+  fechaAlta: row.enrolled_at,
+});
+
+const beneficiarySelect = "id, first_name, last_name, dni, birth_date, street_address, neighborhood, city, status_code, available_tickets, enrolled_at";
+
 export function Beneficiarios({ readOnly = false }: { readOnly?: boolean }) {
-  const [beneficiarios, setBeneficiarios] = useState<Beneficiario[]>(beneficiariosMock);
+  const [beneficiarios, setBeneficiarios] = useState<Beneficiario[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [editId, setEditId] = useState<string | null>(null);
   const [viewId, setViewId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
 
-  const filtered = useMemo(() => {
-    const query = busqueda.trim().toLowerCase();
-    if (!query) return beneficiarios;
+  const loadBeneficiarios = async (search = busqueda) => {
+    setLoading(true);
+    setMessage("");
 
-    return beneficiarios.filter((beneficiario) =>
-      `${beneficiario.dni} ${beneficiario.nombre} ${beneficiario.apellido} ${beneficiario.localidad}`
-        .toLowerCase()
-        .includes(query)
-    );
-  }, [beneficiarios, busqueda]);
+    let query = supabase
+      .from("beneficiaries")
+      .select(beneficiarySelect)
+      .order("last_name", { ascending: true })
+      .order("first_name", { ascending: true });
+
+    const trimmedSearch = search.trim();
+    if (trimmedSearch) {
+      const pattern = `%${trimmedSearch}%`;
+      query = query.or(`dni.ilike.${pattern},first_name.ilike.${pattern},last_name.ilike.${pattern},city.ilike.${pattern}`);
+    }
+
+    const { data, error } = await query.returns<BeneficiaryRow[]>();
+
+    if (error) {
+      setMessage("No se pudo cargar el padron de beneficiarios.");
+      setBeneficiarios([]);
+    } else {
+      setBeneficiarios((data ?? []).map(mapBeneficiary));
+    }
+
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      loadBeneficiarios(busqueda);
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [busqueda]);
 
   const selected = beneficiarios.find((beneficiario) => beneficiario.id === viewId);
 
@@ -76,8 +135,10 @@ export function Beneficiarios({ readOnly = false }: { readOnly?: boolean }) {
     setShowForm(false);
   };
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (readOnly) return;
+
     const nextErrors = validate();
 
     if (Object.keys(nextErrors).length > 0) {
@@ -85,26 +146,53 @@ export function Beneficiarios({ readOnly = false }: { readOnly?: boolean }) {
       return;
     }
 
-    if (editId) {
-      setBeneficiarios((prev) =>
-        prev.map((beneficiario) =>
-          beneficiario.id === editId ? { ...beneficiario, ...form, dni: form.dni.trim() } : beneficiario
-        )
-      );
-    } else {
-      const nuevo: Beneficiario = {
-        id: `B${String(Date.now()).slice(-4)}`,
-        ...form,
-        dni: form.dni.trim(),
-        estado: "activo",
-        boletosDisponibles: 0,
-        fechaAlta: new Date().toISOString().slice(0, 10),
-      };
+    setSaving(true);
+    setMessage("");
 
-      setBeneficiarios((prev) => [nuevo, ...prev]);
+    if (editId) {
+      const { error } = await supabase
+        .from("beneficiaries")
+        .update({
+          first_name: form.nombre.trim(),
+          last_name: form.apellido.trim(),
+          dni: form.dni.trim(),
+          birth_date: form.fechaNacimiento,
+          street_address: form.direccion.trim(),
+          neighborhood: form.barrio.trim(),
+          city: form.localidad.trim(),
+        })
+        .eq("id", editId);
+
+      if (error) {
+        setMessage(error.code === "23505" ? "Ya existe un beneficiario con ese DNI." : "No se pudo actualizar el beneficiario.");
+        setSaving(false);
+        return;
+      }
+    } else {
+      const { error } = await supabase
+        .from("beneficiaries")
+        .insert({
+          first_name: form.nombre.trim(),
+          last_name: form.apellido.trim(),
+          dni: form.dni.trim(),
+          birth_date: form.fechaNacimiento,
+          street_address: form.direccion.trim(),
+          neighborhood: form.barrio.trim(),
+          city: form.localidad.trim(),
+          status_code: "activo",
+          available_tickets: 0,
+        });
+
+      if (error) {
+        setMessage(error.code === "23505" ? "Ya existe un beneficiario con ese DNI." : "No se pudo crear el beneficiario.");
+        setSaving(false);
+        return;
+      }
     }
 
     resetForm();
+    setSaving(false);
+    await loadBeneficiarios();
   };
 
   const handleEdit = (beneficiario: Beneficiario) => {
@@ -122,17 +210,40 @@ export function Beneficiarios({ readOnly = false }: { readOnly?: boolean }) {
     setShowForm(true);
   };
 
-  const bloquear = (id: string) => {
-    setBeneficiarios((prev) =>
-      prev.map((beneficiario) =>
-        beneficiario.id === id
-          ? { ...beneficiario, estado: beneficiario.estado === "bloqueado" ? "activo" : "bloqueado" }
-          : beneficiario
-      )
-    );
+  const bloquear = async (beneficiario: Beneficiario) => {
+    if (readOnly) return;
+
+    const nextStatus = beneficiario.estado === "bloqueado" ? "activo" : "bloqueado";
+    setMessage("");
+
+    const { error } = await supabase
+      .from("beneficiaries")
+      .update({ status_code: nextStatus })
+      .eq("id", beneficiario.id);
+
+    if (error) {
+      setMessage("No se pudo cambiar el estado del beneficiario.");
+      return;
+    }
+
+    setBeneficiarios((prev) => prev.map((item) => (item.id === beneficiario.id ? { ...item, estado: nextStatus } : item)));
   };
 
-  const eliminar = (id: string) => {
+  const eliminar = async (id: string) => {
+    if (readOnly) return;
+
+    setMessage("");
+
+    const { error } = await supabase
+      .from("beneficiaries")
+      .update({ status_code: "baja", available_tickets: 0 })
+      .eq("id", id);
+
+    if (error) {
+      setMessage("No se pudo dar de baja el beneficiario.");
+      return;
+    }
+
     setBeneficiarios((prev) =>
       prev.map((beneficiario) =>
         beneficiario.id === id ? { ...beneficiario, estado: "baja", boletosDisponibles: 0 } : beneficiario
@@ -183,6 +294,12 @@ export function Beneficiarios({ readOnly = false }: { readOnly?: boolean }) {
         )}
       </div>
 
+      {message && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          {message}
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px]">
@@ -196,7 +313,21 @@ export function Beneficiarios({ readOnly = false }: { readOnly?: boolean }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.map((beneficiario) => (
+              {loading && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    Cargando beneficiarios...
+                  </td>
+                </tr>
+              )}
+              {!loading && beneficiarios.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    No se encontraron beneficiarios.
+                  </td>
+                </tr>
+              )}
+              {!loading && beneficiarios.map((beneficiario) => (
                 <tr key={beneficiario.id} className="hover:bg-accent/20">
                   <td className="px-4 py-3 text-sm tabular-nums">{formatDni(beneficiario.dni)}</td>
                   <td className="px-4 py-3 text-sm">{beneficiario.apellido}, {beneficiario.nombre}</td>
@@ -217,7 +348,7 @@ export function Beneficiarios({ readOnly = false }: { readOnly?: boolean }) {
                           <button onClick={() => handleEdit(beneficiario)} className="rounded-lg p-2 text-muted-foreground hover:bg-accent" title="Editar">
                             <Edit2 className="h-4 w-4" />
                           </button>
-                          <button onClick={() => bloquear(beneficiario.id)} className="rounded-lg p-2 text-muted-foreground hover:bg-yellow-50 hover:text-yellow-700" title="Bloquear o desbloquear tarjeta">
+                          <button onClick={() => bloquear(beneficiario)} className="rounded-lg p-2 text-muted-foreground hover:bg-yellow-50 hover:text-yellow-700" title="Bloquear o desbloquear tarjeta">
                             <Lock className="h-4 w-4" />
                           </button>
                           <button onClick={() => eliminar(beneficiario.id)} className="rounded-lg p-2 text-muted-foreground hover:bg-red-50 hover:text-destructive" title="Dar de baja">
@@ -266,8 +397,8 @@ export function Beneficiarios({ readOnly = false }: { readOnly?: boolean }) {
                 <button type="button" onClick={resetForm} className="rounded-xl border border-border px-4 py-2 text-sm hover:bg-accent">
                   Cancelar
                 </button>
-                <button type="submit" className="rounded-xl bg-foreground px-4 py-2 text-sm text-background hover:opacity-90">
-                  Registrar Beneficiario
+                <button type="submit" disabled={saving} className="rounded-xl bg-foreground px-4 py-2 text-sm text-background hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50">
+                  {saving ? "Guardando..." : editId ? "Guardar cambios" : "Registrar Beneficiario"}
                 </button>
               </div>
             </form>
