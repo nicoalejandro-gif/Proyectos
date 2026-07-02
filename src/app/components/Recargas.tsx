@@ -1,23 +1,157 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Search, Ticket } from "lucide-react";
-import { beneficiariosMock, recargasMock, type Recarga } from "../data/appData";
+import { supabase } from "../lib/supabase";
 
-const MAX_BOLETOS_POR_RECARGA = 15;
+type BeneficiarioRecarga = {
+  id: string;
+  nombre: string;
+  apellido: string;
+  dni: string;
+  boletosDisponibles: number;
+};
+
+type RecargaView = {
+  id: string;
+  beneficiarioId: string;
+  beneficiario: string;
+  dni: string;
+  cantidad: number;
+  fecha: string;
+  operador: string;
+};
+
+type RechargePolicy = {
+  id: string;
+  max_tickets_per_operation: number;
+  monthly_ticket_quota: number | null;
+};
+
+type RechargeRow = {
+  id: string;
+  quantity: number;
+  performed_at: string;
+  beneficiaries: { id: string; first_name: string; last_name: string; dni: string } | { id: string; first_name: string; last_name: string; dni: string }[] | null;
+  profiles: { full_name: string } | { full_name: string }[] | null;
+};
+
+const DEFAULT_MAX_BOLETOS_POR_RECARGA = 15;
+
+const firstRelation = <T,>(value: T | T[] | null) => (Array.isArray(value) ? value[0] : value);
 
 export function Recargas() {
   const [dni, setDni] = useState("");
-  const [cantidad, setCantidad] = useState(String(MAX_BOLETOS_POR_RECARGA));
-  const [recargas, setRecargas] = useState<Recarga[]>(recargasMock);
+  const [cantidad, setCantidad] = useState(String(DEFAULT_MAX_BOLETOS_POR_RECARGA));
+  const [recargas, setRecargas] = useState<RecargaView[]>([]);
+  const [beneficiario, setBeneficiario] = useState<BeneficiarioRecarga | null>(null);
+  const [policy, setPolicy] = useState<RechargePolicy | null>(null);
   const [mensaje, setMensaje] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [searching, setSearching] = useState(false);
 
-  const beneficiario = useMemo(
-    () => beneficiariosMock.find((item) => item.dni === dni.trim()),
-    [dni]
-  );
+  const maxBoletos = policy?.max_tickets_per_operation ?? DEFAULT_MAX_BOLETOS_POR_RECARGA;
 
-  const handleRecargar = (event: React.FormEvent) => {
+  const loadPolicy = async () => {
+    const { data, error } = await supabase
+      .from("recharge_policies")
+      .select("id, max_tickets_per_operation, monthly_ticket_quota")
+      .eq("active", true)
+      .order("valid_from", { ascending: false })
+      .limit(1)
+      .maybeSingle<RechargePolicy>();
+
+    if (error || !data) {
+      setMensaje("No se encontro una politica de recarga activa.");
+      setPolicy(null);
+      return;
+    }
+
+    setPolicy(data);
+    setCantidad(String(data.max_tickets_per_operation));
+  };
+
+  const mapRecarga = (row: RechargeRow): RecargaView => {
+    const beneficiarioData = firstRelation(row.beneficiaries);
+    const operadorData = firstRelation(row.profiles);
+
+    return {
+      id: row.id,
+      beneficiarioId: beneficiarioData?.id ?? "",
+      beneficiario: beneficiarioData ? `${beneficiarioData.last_name}, ${beneficiarioData.first_name}` : "Beneficiario no disponible",
+      dni: beneficiarioData?.dni ?? "",
+      cantidad: row.quantity,
+      fecha: row.performed_at.slice(0, 10),
+      operador: operadorData?.full_name ?? "Operador no disponible",
+    };
+  };
+
+  const loadRecargas = async () => {
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("recharges")
+      .select("id, quantity, performed_at, beneficiaries(id, first_name, last_name, dni), profiles(full_name)")
+      .order("performed_at", { ascending: false })
+      .limit(50)
+      .returns<RechargeRow[]>();
+
+    if (error) {
+      setMensaje("No se pudo cargar el historial de recargas.");
+      setRecargas([]);
+    } else {
+      setRecargas((data ?? []).map(mapRecarga));
+    }
+
+    setLoading(false);
+  };
+
+  const buscarBeneficiario = async (dniValue: string) => {
+    const cleanDni = dniValue.trim();
+    setBeneficiario(null);
+
+    if (cleanDni.length < 7) return;
+
+    setSearching(true);
+    const { data, error } = await supabase
+      .from("beneficiaries")
+      .select("id, first_name, last_name, dni, available_tickets")
+      .eq("dni", cleanDni)
+      .maybeSingle();
+
+    if (!error && data) {
+      setBeneficiario({
+        id: data.id,
+        nombre: data.first_name,
+        apellido: data.last_name,
+        dni: data.dni,
+        boletosDisponibles: data.available_tickets,
+      });
+    }
+
+    setSearching(false);
+  };
+
+  useEffect(() => {
+    loadPolicy();
+    loadRecargas();
+  }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      buscarBeneficiario(dni);
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [dni]);
+
+  const handleRecargar = async (event: React.FormEvent) => {
     event.preventDefault();
     setMensaje("");
+
+    if (!policy) {
+      setMensaje("No hay una politica de recarga activa.");
+      return;
+    }
 
     if (!beneficiario) {
       setMensaje("Buscá un beneficiario válido por DNI antes de recargar.");
@@ -30,24 +164,40 @@ export function Recargas() {
       return;
     }
 
-    if (cantidadNumerica > MAX_BOLETOS_POR_RECARGA) {
-      setMensaje(`La recarga no puede superar los ${MAX_BOLETOS_POR_RECARGA} boletos por operación.`);
+    if (cantidadNumerica > maxBoletos) {
+      setMensaje(`La recarga no puede superar los ${maxBoletos} boletos por operacion.`);
       return;
     }
 
-    const nuevaRecarga: Recarga = {
-      id: `R${String(Date.now()).slice(-4)}`,
-      beneficiarioId: beneficiario.id,
-      beneficiario: `${beneficiario.apellido}, ${beneficiario.nombre}`,
-      dni: beneficiario.dni,
-      cantidad: cantidadNumerica,
-      fecha: new Date().toISOString().slice(0, 10),
-      operador: "Administrador Municipal",
-    };
+    setSaving(true);
 
-    setRecargas((prev) => [nuevaRecarga, ...prev]);
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) {
+      setMensaje("No se pudo identificar el operador autenticado.");
+      setSaving(false);
+      return;
+    }
+
+    const { error } = await supabase
+      .from("recharges")
+      .insert({
+        beneficiary_id: beneficiario.id,
+        policy_id: policy.id,
+        quantity: cantidadNumerica,
+        operator_id: userData.user.id,
+      });
+
+    if (error) {
+      setMensaje(error.message || "No se pudo registrar la recarga.");
+      setSaving(false);
+      return;
+    }
+
     setMensaje("Recarga registrada correctamente.");
-    setCantidad(String(MAX_BOLETOS_POR_RECARGA));
+    setCantidad(String(maxBoletos));
+    setBeneficiario((prev) => prev ? { ...prev, boletosDisponibles: prev.boletosDisponibles + cantidadNumerica } : prev);
+    await loadRecargas();
+    setSaving(false);
   };
 
   return (
@@ -82,7 +232,7 @@ export function Recargas() {
             <input
               type="number"
               min="1"
-              max={MAX_BOLETOS_POR_RECARGA}
+              max={maxBoletos}
               value={cantidad}
               onChange={(event) => {
                 const value = event.target.value;
@@ -97,18 +247,18 @@ export function Recargas() {
 
                 setCantidad(value);
                 setMensaje(
-                  cantidadNumerica > MAX_BOLETOS_POR_RECARGA
-                    ? `La recarga no puede superar los ${MAX_BOLETOS_POR_RECARGA} boletos por operación.`
+                  cantidadNumerica > maxBoletos
+                    ? `La recarga no puede superar los ${maxBoletos} boletos por operacion.`
                     : ""
                 );
               }}
               className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <p className="text-xs text-muted-foreground">Máximo {MAX_BOLETOS_POR_RECARGA} boletos por operación.</p>
+            <p className="text-xs text-muted-foreground">Maximo {maxBoletos} boletos por operacion.</p>
           </div>
 
-          <button className="self-end rounded-xl bg-foreground px-5 py-2.5 text-sm text-background hover:opacity-90">
-            Recargar
+          <button disabled={saving || !policy} className="self-end rounded-xl bg-foreground px-5 py-2.5 text-sm text-background hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50">
+            {saving ? "Registrando..." : "Recargar"}
           </button>
         </div>
 
@@ -117,6 +267,10 @@ export function Recargas() {
             <strong>{beneficiario.apellido}, {beneficiario.nombre}</strong>
             <p>Saldo actual: {beneficiario.boletosDisponibles} boletos.</p>
           </div>
+        )}
+
+        {searching && (
+          <p className="mt-4 text-sm text-muted-foreground">Buscando beneficiario...</p>
         )}
 
         {mensaje && (
@@ -142,7 +296,21 @@ export function Recargas() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {recargas.map((recarga) => (
+              {loading && (
+                <tr>
+                  <td colSpan={5} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                    Cargando historial...
+                  </td>
+                </tr>
+              )}
+              {!loading && recargas.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                    Todavia no hay recargas registradas.
+                  </td>
+                </tr>
+              )}
+              {!loading && recargas.map((recarga) => (
                 <tr key={recarga.id} className="hover:bg-accent/20">
                   <td className="px-5 py-3 text-sm">{recarga.fecha}</td>
                   <td className="px-5 py-3 text-sm">{recarga.beneficiario}</td>
